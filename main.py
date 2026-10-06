@@ -38,7 +38,7 @@ def get_frontend():
 
         <script>
             // Fetch and display tasks when page loads
-            async def loadTasks() {
+            async function loadTasks() {
                 const response = await fetch('/tasks');
                 const tasks = await response.json();
                 const list = document.getElementById('taskList');
@@ -49,7 +49,7 @@ def get_frontend():
             }
 
             // POST request to add a task
-            async def addTask() {
+            async function addTask() {
                 const input = document.getElementById('taskInput');
                 if (!input.value) return;
                 
@@ -63,7 +63,7 @@ def get_frontend():
             }
 
             // DELETE request to remove a task
-            async def deleteTask(index) {
+            async function deleteTask(index) {
                 await fetch(`/tasks/${index}`, { method: 'DELETE' });
                 loadTasks();
             }
