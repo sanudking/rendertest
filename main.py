@@ -1,54 +1,57 @@
+import os
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 
 app = FastAPI()
 
-# 1. Simulated Database (A simple Python list)
-todo_db = ["Learn Render", "Deploy FastAPI app"]
+# 1. Connect to MongoDB Atlas via Environment Variables
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017") 
+client = AsyncIOMotorClient(MONGO_URI)
+db = client["todo_database"]
+collection = db["tasks"]
 
-# Data model for the POST request
 class TodoItem(BaseModel):
     task: str
 
-# 2. Built-in HTML Frontend
+# 2. Updated HTML Frontend (Handles MongoDB unique text IDs instead of list indexes)
 @app.get("/", response_class=HTMLResponse)
 def get_frontend():
-    html_content = """
+    return """
     <!DOCTYPE html>
     <html>
     <head>
-        <title>FastAPI Demo</title>
+        <title>FastAPI MongoDB Demo</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; }
             input { padding: 10px; width: 250px; }
-            button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+            button { padding: 10px 15px; background-color: #28a745; color: white; border: none; cursor: pointer; }
             button.delete { background-color: #dc3545; margin-left: 10px; padding: 5px 10px; }
             ul { list-style-type: none; padding: 0; }
             li { background: white; margin: 5px 0; padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; max-width: 400px; }
         </style>
     </head>
     <body>
-        <h2>My Render To-Do List</h2>
-        <input type="text" id="taskInput" placeholder="Enter a new task...">
+        <h2>My Live Render + MongoDB To-Do List</h2>
+        <input type="text" id="taskInput" placeholder="Enter a new cloud task...">
         <button onclick="addTask()">Add Task</button>
         
-        <h3>Tasks:</h3>
+        <h3>Tasks from MongoDB Atlas:</h3>
         <ul id="taskList"></ul>
 
         <script>
-            // Fetch and display tasks when page loads
             async function loadTasks() {
                 const response = await fetch('/tasks');
                 const tasks = await response.json();
                 const list = document.getElementById('taskList');
                 list.innerHTML = '';
-                tasks.forEach((task, index) => {
-                    list.innerHTML += `<li>${task} <button class="delete" onclick="deleteTask(${index})">X</button></li>`;
+                tasks.forEach(item => {
+                    list.innerHTML += `<li>${item.task} <button class="delete" onclick="deleteTask('${item.id}')">X</button></li>`;
                 });
             }
 
-            // POST request to add a task
             async function addTask() {
                 const input = document.getElementById('taskInput');
                 if (!input.value) return;
@@ -62,9 +65,8 @@ def get_frontend():
                 loadTasks();
             }
 
-            // DELETE request to remove a task
-            async function deleteTask(index) {
-                await fetch(`/tasks/${index}`, { method: 'DELETE' });
+            async function deleteTask(id) {
+                await fetch(`/tasks/${id}`, { method: 'DELETE' });
                 loadTasks();
             }
 
@@ -73,23 +75,25 @@ def get_frontend():
     </body>
     </html>
     """
-    return html_content
 
-# 3. GET Route (Read all items)
+# 3. GET Route (Fetch items from Atlas)
 @app.get("/tasks")
-def get_tasks():
-    return todo_db
+async def get_tasks():
+    tasks = []
+    async for document in collection.find({}):
+        tasks.append({"id": str(document["_id"]), "task": document["task"]})
+    return tasks
 
-# 4. POST Route (Create a new item)
+# 4. POST Route (Insert item into Atlas)
 @app.post("/tasks")
-def add_task(item: TodoItem):
-    todo_db.append(item.task)
-    return {"message": "Task added successfully!", "current_db": todo_db}
+async def add_task(item: TodoItem):
+    result = await collection.insert_one({"task": item.task})
+    return {"message": "Task saved to Atlas!", "id": str(result.inserted_id)}
 
-# 5. DELETE Route (Delete an item by its index)
-@app.delete("/tasks/{index}")
-def delete_task(index: int):
-    if 0 <= index < len(todo_db):
-        removed = todo_db.pop(index)
-        return {"message": f"Removed: {removed}"}
+# 5. DELETE Route (Remove item from Atlas using its ObjectId string)
+@app.delete("/tasks/{task_id}")
+async def delete_task(task_id: str):
+    result = await collection.delete_one({"_id": ObjectId(task_id)})
+    if result.deleted_count == 1:
+        return {"message": "Deleted successfully"}
     return {"error": "Task not found"}
